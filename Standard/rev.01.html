@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>생산 캘린더</title>
+  <!-- FullCalendar CSS -->
+  <link href='https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.min.css' rel='stylesheet' />
+  <link href='https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.print.min.css' rel='stylesheet' media='print' />
+
+  <!-- Custom CSS -->
+  <style>
+      #external-events {
+          width: 150px;
+          padding: 10px;
+          border: 1px solid #ccc;
+          background: #eee;
+          text-align: left;
+      }
+
+      .event-EBX { background-color: #1e90ff; }
+      .event-IKF-916 { background-color: #32cd32; }
+      .event-CCA { background-color: #ff4500; }
+      .event-PC { background-color: #da70d6; }
+
+      .fc-event {
+          cursor: pointer;
+          margin: 10px 0;
+      }
+  </style>
+</head>
+<body>
+  <div id='external-events'>
+      <h4>생산 제품</h4>
+      <div class='fc-event event-EBX'>EBX</div>
+      <div class='fc-event event-IKF-916'>IKF-916</div>
+      <div class='fc-event event-CCA'>CCA</div>
+      <div class='fc-event event-PC'>PC</div>
+  </div>
+  <div id='calendar'></div>
+
+  <!-- FullCalendar and dependencies -->
+  <script src='https://fullcalendar.io/releases/fullcalendar/3.10.0/lib/moment.min.js'></script>
+  <script src='https://fullcalendar.io/releases/fullcalendar/3.10.0/lib/jquery.min.js'></script>
+  <script src='https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.min.js'></script>
+  <script src='https://code.jquery.com/ui/1.12.1/jquery-ui.min.js'></script>
+
+  <!-- Custom JavaScript -->
+  <script>
+   $(document).ready(function() {
+       var events = {}; // 제품별 이벤트 저장
+
+       // FullCalendar 초기화
+       $('#calendar').fullCalendar({
+           header: {
+               left: 'prev,next today',
+               center: 'title',
+               right: 'month,agendaWeek,agendaDay'
+           },
+           defaultView: 'month',
+           editable: true,
+           droppable: true,
+           eventClick: function(event) {
+               if (confirm("이 이벤트를 삭제하시겠습니까?")) {
+                   var title = event.title.split(' ')[0]; // 제품명 추출
+                   events[title] = events[title].filter(function(e) {
+                       return e.id !== event.id;
+                   });
+                   $('#calendar').fullCalendar('removeEvents', event.id);
+                   updateEventNumbers(title); // 이벤트 번호 업데이트
+               }
+           },
+           drop: function(date, jsEvent, ui) {
+               var originalEventObject = $(this).data('eventObject');
+               var title = originalEventObject.title;
+               var copiedEventObject = $.extend({}, originalEventObject);
+               var eventId = Date.now(); // 유니크한 ID 생성
+
+               copiedEventObject.start = date;
+               copiedEventObject.id = eventId;
+
+               if (!events[title]) {
+                   events[title] = [];
+               }
+               events[title].push(copiedEventObject);
+               events[title].sort(function(a, b) {
+                   return new Date(a.start) - new Date(b.start);
+               });
+
+               $('#calendar').fullCalendar('renderEvent', copiedEventObject, true);
+               updateEventNumbers(title); // 이벤트 번호 업데이트
+           }
+       });
+
+       // 제품별 이벤트 번호 업데이트 함수
+       function updateEventNumbers(title) {
+           for (var i = 0; i < events[title].length; i++) {
+               var event = events[title][i];
+               event.title = title + ' ' + (i + 1);
+               $('#calendar').fullCalendar('removeEvents', event.id);
+               $('#calendar').fullCalendar('renderEvent', event, true);
+           }
+       }
+
+       // 드래그 가능한 이벤트 설정
+       $('.fc-event').each(function() {
+           $(this).data('eventObject', {
+               title: $.trim($(this).text()), // 제품 이름
+               stick: true, // 이벤트가 캘린더에 고정되도록 설정
+               className: $(this).attr('class') // 클래스 이름 사용
+           });
+
+           $(this).draggable({
+               zIndex: 999,
+               revert: true, // 원래 위치로 돌아감
+               revertDuration: 0 // 즉각적인 복귀
+           });
+       });
+   });
+  </script>
+</body>
+</html>
+
