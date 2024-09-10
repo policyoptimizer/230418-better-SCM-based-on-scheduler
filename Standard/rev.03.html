@@ -1,14 +1,16 @@
 # 처음 웹앱 열었을 때 기존 기록이 저장되어 있음
 
 <!DOCTYPE html>
-<html>
+<html lang="ko">
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>생산 캘린더</title>
   <link href='https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.min.css' rel='stylesheet' />
   <link href='https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.print.min.css' rel='stylesheet' media='print' />
 
   <!-- Custom CSS -->
-  <style>
+  <style> 
       #external-events {
           display: flex;
           justify-content: center; /* 가운데 정렬 */
@@ -98,6 +100,19 @@
                $('#calendar').fullCalendar('renderEvent', copiedEventObject, true);
                updateEventNumbers(title); // 이벤트 번호 업데이트
                saveEventsToLocalStorage(); // 로컬 스토리지에 저장
+           },
+           eventDrop: function(event, delta, revertFunc) {
+               var title = event.title.split(' ')[0];
+               events[title].forEach(function(e) {
+                   if (e.id === event.id) {
+                       e.start = event.start;
+                   }
+               });
+               events[title].sort(function(a, b) {
+                   return new Date(a.start) - new Date(b.start);
+               });
+               updateEventNumbers(title);
+               saveEventsToLocalStorage();
            }
        });
 
