@@ -1,0 +1,251 @@
+# 제품 드래그 > 캘린더에서 공정 선택 > 설비 선택
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>생산 스케줄러</title>
+  <link href="https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.min.css" rel="stylesheet" />
+  <link href="https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.print.min.css" rel="stylesheet" media="print" />
+
+  <style>
+      #external-events {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 10px;
+          padding: 10px;
+          border: 1px solid #ccc;
+          background: #eee;
+          text-align: center;
+      }
+      .fc-event {
+          cursor: pointer;
+          margin: 5px;
+          padding: 5px 10px;
+          border-radius: 3px;
+          background-color: #3a87ad;
+          color: white;
+      }
+      #calendar {
+          margin-top: 20px;
+          width: 70%;
+          display: inline-block;
+      }
+      #equipment-list {
+          margin-top: 20px;
+          width: 25%;
+          float: right;
+          background: #f9f9f9;
+          padding: 10px;
+          border: 1px solid #ccc;
+      }
+      .equipment {
+          margin: 5px;
+          padding: 5px 10px;
+          background-color: #eee;
+          border-radius: 3px;
+      }
+      .in-use {
+          color: red;
+      }
+      #process-popup {
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          padding: 20px;
+          background-color: white;
+          border: 1px solid #ccc;
+          z-index: 9999;
+      }
+      .popup-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0, 0, 0, 0.5);
+          z-index: 9998;
+      }
+  </style>
+</head>
+<body>
+  <!-- 제품 리스트를 상단에 표시 -->
+  <div id="external-events">
+    <h3>제품 리스트</h3>
+    <!-- 11개 제품을 동적으로 추가할 예정 -->
+  </div>
+
+  <!-- 캘린더를 표시 -->
+  <div id="calendar"></div>
+
+  <!-- 설비 리스트 -->
+  <div id="equipment-list">
+      <h3>설비 리스트</h3>
+      <ul id="equipment-list-content">
+          <!-- 설비 리스트가 여기에 세로로 표시됩니다 -->
+      </ul>
+  </div>
+
+  <!-- FullCalendar 및 종속성 -->
+  <script src="https://fullcalendar.io/releases/fullcalendar/3.10.0/lib/moment.min.js"></script>
+  <script src="https://fullcalendar.io/releases/fullcalendar/3.10.0/lib/jquery.min.js"></script>
+  <script src="https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.min.js"></script>
+  <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
+
+  <script>
+    $(document).ready(function() {
+        var products = ['PBX', 'FPESA', 'FTS', 'TMCA-Cl', 'FP', 'IKF-916', 'CCA', 'PC', 'ICP 정제', 'MXL 정제', 'DCZ 정제'];
+        var allEquipments = ['R-5501', 'R-5502', 'R-5503', 'R-5504', 'R-5601', 'R-5701', 'R-5702', 'R-5703', 'R-5704', 'R-5705', 'R-5803'];
+
+        // 제품 리스트를 동적으로 상단에 추가
+        products.forEach(function(product) {
+            var productHtml = '<div class="fc-event">' + product + '</div>';
+            $('#external-events').append(productHtml);
+        });
+
+        // 드래그 가능하게 설정
+        $('.fc-event').each(function() {
+            $(this).data('eventObject', {
+                title: $.trim($(this).text()),
+                stick: true
+            });
+
+            $(this).draggable({
+                zIndex: 999,
+                revert: true,
+                revertDuration: 0
+            });
+        });
+
+        // 캘린더 초기화
+        $('#calendar').fullCalendar({
+            header: {
+                left: 'prev,next today',
+                center: 'title',
+                right: 'month,agendaWeek,agendaDay'
+            },
+            editable: true,
+            droppable: true,
+            events: [],
+            drop: function(date, jsEvent, ui, resourceId) {
+                // 드롭 후 공정 선택 팝업 띄우기
+                var product = $(this).data('eventObject').title;
+                showProcessPopup(product);
+            },
+            eventClick: function(event) {
+                // 제품 클릭 시 공정 및 설비 팝업 표시
+                showProcessPopup(event.title);
+            }
+        });
+
+        // 공정 및 설비 선택 팝업
+        function showProcessPopup(product) {
+            var processes = getProcessesForProduct(product); // 제품별 공정 가져오기
+            var popupHtml = '<div id="process-popup">' +
+                '<h4>' + product + ' - 공정 선택</h4>' +
+                '<ul>';
+
+            processes.forEach(function(process) {
+                popupHtml += '<li><button class="select-process" data-process="' + process + '">' + process + '</button></li>';
+            });
+
+            popupHtml += '</ul>' +
+                '<button id="close-popup">닫기</button>' +
+                '</div>';
+
+            $('body').append('<div class="popup-overlay"></div>'); // 배경 오버레이
+            $('body').append(popupHtml);
+
+            // 공정 선택 버튼 클릭 시 설비 선택 팝업 표시
+            $('.select-process').click(function() {
+                var process = $(this).data('process');
+                showEquipmentPopup(product, process);
+            });
+
+            // 팝업 닫기
+            $('#close-popup, .popup-overlay').click(function() {
+                $('#process-popup').remove();
+                $('.popup-overlay').remove();
+            });
+        }
+
+        // 설비 선택 팝업
+        function showEquipmentPopup(product, process) {
+            var equipments = getEquipmentsForProcess(product, process); // 공정별 설비 가져오기
+            var popupHtml = '<div id="process-popup">' +
+                '<h4>' + process + ' - 설비 선택</h4>' +
+                '<ul>';
+
+            equipments.forEach(function(equipment) {
+                popupHtml += '<li><button class="select-equipment" data-equipment="' + equipment + '">' + equipment + '</button></li>';
+            });
+
+            popupHtml += '</ul>' +
+                '<button id="close-popup">닫기</button>' +
+                '</div>';
+
+            $('#process-popup').remove(); // 기존 공정 팝업 닫기
+            $('body').append(popupHtml);
+
+            // 설비 선택 시 동작
+            $('.select-equipment').click(function() {
+                var equipment = $(this).data('equipment');
+                alert('선택한 설비: ' + equipment);
+                $('#process-popup').remove();
+                $('.popup-overlay').remove();
+            });
+
+            // 팝업 닫기
+            $('#close-popup').click(function() {
+                $('#process-popup').remove();
+                $('.popup-overlay').remove();
+            });
+        }
+
+        // 제품별 공정 목록
+        function getProcessesForProduct(product) {
+            var processMap = {
+                'PBX': ['공정 1', '공정 2', '공정 3'],
+                'FPESA': ['공정 1', '공정 2'],
+                'FTS': ['공정 1', '공정 2'],
+                'TMCA-Cl': ['공정 1', '공정 2'],
+                'FP': ['공정 1', '공정 2'],
+                'IKF-916': ['공정 1', '공정 2'],
+                'CCA': ['공정 1', '공정 2'],
+                'PC': ['공정 1', '공정 2'],
+                'ICP 정제': ['공정 1', '공정 2'],
+                'MXL 정제': ['공정 1', '공정 2'],
+                'DCZ 정제': ['공정 1', '공정 2']
+            };
+            return processMap[product] || [];
+        }
+
+        // 공정별 설비 목록
+        function getEquipmentsForProcess(product, process) {
+            var equipmentMap = {
+                '공정 1': ['R-5501', 'R-5502', 'R-5503'],
+                '공정 2': ['R-5704', 'R-5705'],
+                '공정 3': ['R-5803', 'R-5804']
+            };
+            return equipmentMap[process] || [];
+        }
+
+        // 우측 설비 리스트 세로로 나열
+        function renderEquipmentList() {
+            var equipmentHtml = '';
+            allEquipments.forEach(function(equipment) {
+                equipmentHtml += '<li class="equipment">' + equipment + '</li>';
+            });
+            $('#equipment-list-content').html(equipmentHtml);
+        }
+
+        // 페이지 로드 시 설비 리스트 표시
+        renderEquipmentList();
+    });
+  </script>
+</body>
+</html>
+
