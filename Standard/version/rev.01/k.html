@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>생산 스케줄러</title>
+  <link href='https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.min.css' rel='stylesheet' />
+  <link href='https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.print.min.css' rel='stylesheet' media='print' />
+
+  <style>
+      #external-events {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 10px;
+          padding: 10px;
+          border: 1px solid #ccc;
+          background: #eee;
+          text-align: center;
+      }
+      .fc-event {
+          cursor: pointer;
+          margin: 5px;
+          padding: 5px 10px;
+          border-radius: 3px;
+      }
+      #calendar {
+          margin-top: 20px;
+      }
+      #equipment-list {
+          margin-top: 20px;
+          background: #f9f9f9;
+          padding: 10px;
+          border: 1px solid #ccc;
+      }
+      .equipment {
+          margin: 5px;
+          padding: 5px 10px;
+          background-color: #eee;
+          border-radius: 3px;
+      }
+      .in-use {
+          color: red;
+      }
+  </style>
+</head>
+<body>
+  <!-- 제품 리스트를 백엔드에서 불러옵니다 -->
+  <div id='external-events'>
+      <!-- 제품 리스트를 여기에 동적으로 표시 -->
+  </div>
+
+  <!-- 설비 리스트 -->
+  <div id="equipment-list">
+      <h3>설비 리스트</h3>
+      <ul id="equipment-list-content">
+          <!-- 설비 리스트가 여기에 표시됩니다 -->
+      </ul>
+  </div>
+
+  <div id='calendar'></div>
+
+  <!-- FullCalendar 및 종속성 -->
+  <script src='https://fullcalendar.io/releases/fullcalendar/3.10.0/lib/moment.min.js'></script>
+  <script src='https://fullcalendar.io/releases/fullcalendar/3.10.0/lib/jquery.min.js'></script>
+  <script src='https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.min.js'></script>
+  <script src='https://code.jquery.com/ui/1.12.1/jquery-ui.min.js'></script>
+
+  <script>
+    $(document).ready(function() {
+        // 백엔드에서 제품 리스트를 불러옵니다
+        $.getJSON("/get-products", function(data) {
+            var products = data.products;
+            products.forEach(function(product) {
+                var productHtml = '<div class="fc-event">' + product + '</div>';
+                $('#external-events').append(productHtml);
+            });
+
+            // 각 제품을 드래그 가능하게 설정
+            $('.fc-event').each(function() {
+                $(this).data('eventObject', {
+                    title: $.trim($(this).text()),
+                    stick: true
+                });
+
+                $(this).draggable({
+                    zIndex: 999,
+                    revert: true,
+                    revertDuration: 0
+                });
+            });
+        }).fail(function(jqxhr, textStatus, error) {
+            console.error("Failed to load products: " + textStatus + ", " + error);
+        });
+
+        // 캘린더 초기화
+        $('#calendar').fullCalendar({
+            header: {
+                left: 'prev,next today',
+                center: 'title',
+                right: 'month,agendaWeek,agendaDay'
+            },
+            defaultView: 'month',
+            editable: true,
+            droppable: true,
+            events: [],
+
+            // 제품 클릭 시 공정/설비 정보를 가져오는 로직
+            eventClick: function(event) {
+                var product = event.title.split(' ')[0]; // 제품명 추출
+                $.getJSON("/get-process-and-equipment?product=" + product, function(data) {
+                    var processList = data.processes;
+                    var equipmentList = data.equipment;
+
+                    var processHtml = '<h4>공정 선택</h4><ul>';
+                    processList.forEach(function(process) {
+                        processHtml += '<li>' + process + '</li>';
+                    });
+                    processHtml += '</ul>';
+
+                    var equipmentHtml = '<h4>설비 리스트</h4><ul>';
+                    equipmentList.forEach(function(equipment) {
+                        equipmentHtml += '<li>' + equipment + '</li>';
+                    });
+                    equipmentHtml += '</ul>';
+
+                    // 공정 및 설비 팝업 표시
+                    $('body').append('<div id="process-popup">' + processHtml + equipmentHtml + '</div>');
+                }).fail(function(jqxhr, textStatus, error) {
+                    console.error("Failed to load process and equipment: " + textStatus + ", " + error);
+                });
+            }
+        });
+    });
+  </script>
+</body>
+</html>
+
