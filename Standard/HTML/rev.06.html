@@ -1,0 +1,430 @@
+<!-- 저장도 안되고 
+캘린더에 공정, 설비 표기도 안됨 -->
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>생산 스케줄러</title>
+  <!-- FullCalendar 및 종속성 CSS -->
+  <link href="https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.min.css" rel="stylesheet" />
+  <link href="https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.print.min.css" rel="stylesheet" media="print" />
+
+  <!-- CSS 스타일 -->
+  <style>
+      body {
+          font-family: Arial, sans-serif;
+      }
+      #external-events {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 10px;
+          padding: 10px;
+          border: 1px solid #ccc;
+          background: #eee;
+          text-align: center;
+      }
+      .fc-event {
+          cursor: pointer;
+          margin: 5px;
+          padding: 5px 10px;
+          border-radius: 3px;
+          color: white;
+      }
+      #calendar {
+          margin-top: 20px;
+          width: 75%;
+          display: inline-block;
+          vertical-align: top;
+      }
+      #equipment-list {
+          margin-top: 20px;
+          width: 23%;
+          display: inline-block;
+          vertical-align: top;
+          background: #f9f9f9;
+          padding: 10px;
+          border: 1px solid #ccc;
+          margin-left: 1%;
+      }
+      .equipment {
+          margin: 5px;
+          padding: 5px 10px;
+          background-color: #eee;
+          border-radius: 3px;
+      }
+      .in-use {
+          color: red;
+      }
+      #process-popup {
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          padding: 20px;
+          background-color: white;
+          border: 1px solid #ccc;
+          z-index: 9999;
+      }
+      .popup-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0, 0, 0, 0.5);
+          z-index: 9998;
+      }
+      #save-events {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          padding: 10px 20px;
+          background-color: #28a745;
+          color: white;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+      }
+  </style>
+</head>
+<body>
+  <!-- 제품 리스트를 상단에 표시 -->
+  <div id="external-events">
+    <h3>제품 리스트</h3>
+    <!-- 제품 리스트는 JavaScript에서 동적으로 추가됩니다 -->
+  </div>
+
+  <!-- 저장 버튼 -->
+  <button id="save-events">이벤트 저장</button>
+
+  <!-- 캘린더를 표시 -->
+  <div id="calendar"></div>
+
+  <!-- 설비 리스트 -->
+  <div id="equipment-list">
+      <h3>설비 리스트</h3>
+      <ul id="equipment-list-content">
+          <!-- 설비 리스트가 여기에 세로로 표시됩니다 -->
+      </ul>
+  </div>
+
+  <!-- FullCalendar 및 종속성 JS -->
+  <script src="https://fullcalendar.io/releases/fullcalendar/3.10.0/lib/moment.min.js"></script>
+  <script src="https://fullcalendar.io/releases/fullcalendar/3.10.0/lib/jquery.min.js"></script>
+  <script src="https://fullcalendar.io/releases/fullcalendar/3.10.0/fullcalendar.min.js"></script>
+  <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
+
+  <!-- JavaScript 코드 -->
+  <script>
+    $(document).ready(function() {
+        var products = ['PBX', 'FPESA', 'FTS', 'TMCA-Cl', 'FP', 'IKF-916', 'CCA', 'PC', 'ICP 정제', 'MXL 정제', 'DCZ 정제'];
+        var allEquipments = ['R-5501', 'R-5502', 'R-5503', 'R-5504', 'R-5601', 'R-5701', 'R-5702', 'R-5703', 'R-5704', 'R-5705', 'R-5803'];
+        var productColors = ['#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe', '#008080'];
+
+        // 제품 리스트를 동적으로 상단에 추가
+        products.forEach(function(product, index) {
+            var productHtml = '<div class="fc-event" style="background-color:' + productColors[index % productColors.length] + ';">' + product + '</div>';
+            $('#external-events').append(productHtml);
+        });
+
+        // 드래그 가능하게 설정
+        $('.fc-event').each(function() {
+            $(this).data('eventObject', {
+                title: $.trim($(this).text()),
+                stick: true,
+                color: $(this).css('background-color')
+            });
+
+            $(this).draggable({
+                zIndex: 999,
+                revert: true,
+                revertDuration: 0
+            });
+        });
+
+        // 배치번호를 관리하기 위한 객체
+        var batchNumbers = {};
+
+        // 캘린더 초기화
+        $('#calendar').fullCalendar({
+            header: {
+                left: 'prev,next today',
+                center: 'title',
+                right: 'month,agendaWeek,agendaDay'
+            },
+            editable: true,
+            droppable: true,
+            eventDurationEditable: true,
+            events: [],
+            drop: function(date, jsEvent, ui, resourceId) {
+                var originalEventObject = $(this).data('eventObject');
+                var product = originalEventObject.title;
+                var color = originalEventObject.color;
+
+                // 배치번호 생성
+                if (!batchNumbers[product]) {
+                    batchNumbers[product] = 1;
+                } else {
+                    batchNumbers[product]++;
+                }
+                var batchNumber = product + batchNumbers[product].toString().padStart(3, '0');
+
+                // 이벤트 생성
+                var newEvent = {
+                    id: Date.now(), // 고유 ID
+                    title: batchNumber,
+                    start: date,
+                    end: date.clone().add(1, 'days'), // 기본 1일
+                    allDay: true,
+                    product: product,
+                    equipment: null,
+                    color: color
+                };
+                $('#calendar').fullCalendar('renderEvent', newEvent, true);
+
+                // 공정 및 설비 선택 팝업 표시
+                showProcessPopup(newEvent);
+            },
+            eventClick: function(event) {
+                // 제품 클릭 시 공정 및 설비 팝업 표시
+                showProcessPopup(event);
+            },
+            eventResize: function(event, delta, revertFunc) {
+                if (!isEquipmentAvailable(event)) {
+                    alert('해당 시간대에 설비가 이미 사용 중입니다.');
+                    revertFunc();
+                } else {
+                    renderEquipmentList();
+                }
+            },
+            eventDrop: function(event, delta, revertFunc) {
+                if (!isEquipmentAvailable(event)) {
+                    alert('해당 시간대에 설비가 이미 사용 중입니다.');
+                    revertFunc();
+                } else {
+                    renderEquipmentList();
+                }
+            },
+            eventRender: function(event, element) {
+                if (event.equipment) {
+                    element.find('.fc-title').append('<br/><b>설비:</b> ' + event.equipment);
+                }
+                renderEquipmentList();
+            },
+            eventDestroy: function(event, element) {
+                renderEquipmentList();
+            }
+        });
+
+        // 설비 사용 가능 여부 확인
+        function isEquipmentAvailable(event) {
+            if (!event.equipment) return true;
+            var events = $('#calendar').fullCalendar('clientEvents');
+            for (var i = 0; i < events.length; i++) {
+                var e = events[i];
+                if (e.id !== event.id && e.equipment === event.equipment) {
+                    if (e.start.isBefore(event.end) && e.end.isAfter(event.start)) {
+                        return false; // 중복됨
+                    }
+                }
+            }
+            return true; // 사용 가능
+        }
+
+        // 공정 및 설비 선택 팝업
+        function showProcessPopup(event) {
+            var processes = getProcessesForProduct(event.product); // 제품별 공정 가져오기
+            var popupHtml = '<div id="process-popup">' +
+                '<h4>' + event.product + ' - 공정 선택</h4>' +
+                '<ul>';
+
+            processes.forEach(function(process) {
+                popupHtml += '<li><button class="select-process" data-process="' + process + '">' + process + '</button></li>';
+            });
+
+            popupHtml += '</ul>' +
+                '<button id="close-popup">닫기</button>' +
+                '</div>';
+
+            $('body').append('<div class="popup-overlay"></div>'); // 배경 오버레이
+            $('body').append(popupHtml);
+
+            // 공정 선택 버튼 클릭 시 설비 선택 팝업 표시
+            $('.select-process').click(function() {
+                var process = $(this).data('process');
+                showEquipmentPopup(event, process);
+            });
+
+            // 팝업 닫기
+            $('#close-popup, .popup-overlay').click(function() {
+                $('#process-popup').remove();
+                $('.popup-overlay').remove();
+            });
+        }
+
+        // 설비 선택 팝업
+        function showEquipmentPopup(event, process) {
+            var equipments = getEquipmentsForProcess(event.product, process);
+
+            // 사용 중인 설비 확인
+            var busyEquipments = [];
+            var events = $('#calendar').fullCalendar('clientEvents');
+            events.forEach(function(e) {
+                if (e.equipment && e.id !== event.id) {
+                    if (e.start.isBefore(event.end) && e.end.isAfter(event.start)) {
+                        busyEquipments.push(e.equipment);
+                    }
+                }
+            });
+
+            // 사용 가능한 설비 목록 필터링
+            var availableEquipments = equipments.filter(function(equipment) {
+                return !busyEquipments.includes(equipment);
+            });
+
+            // 설비가 없는 경우 처리
+            if (availableEquipments.length === 0) {
+                alert('선택한 시간대에 사용 가능한 설비가 없습니다.');
+                $('#process-popup').remove();
+                $('.popup-overlay').remove();
+                return;
+            }
+
+            // 팝업 생성
+            var popupHtml = '<div id="process-popup">' +
+                '<h4>' + process + ' - 설비 선택</h4>' +
+                '<ul>';
+
+            availableEquipments.forEach(function(equipment) {
+                popupHtml += '<li><button class="select-equipment" data-equipment="' + equipment + '">' + equipment + '</button></li>';
+            });
+
+            popupHtml += '</ul>' +
+                '<button id="close-popup">닫기</button>' +
+                '</div>';
+
+            $('#process-popup').remove(); // 기존 팝업 닫기
+            $('body').append(popupHtml);
+
+            // 설비 선택 시 이벤트 업데이트
+            $('.select-equipment').click(function() {
+                var equipment = $(this).data('equipment');
+                event.equipment = equipment;
+
+                // 이벤트 업데이트
+                $('#calendar').fullCalendar('updateEvent', event);
+
+                // 설비 리스트 업데이트 (사용 중 표시)
+                renderEquipmentList();
+
+                $('#process-popup').remove();
+                $('.popup-overlay').remove();
+            });
+
+            // 팝업 닫기
+            $('#close-popup').click(function() {
+                $('#process-popup').remove();
+                $('.popup-overlay').remove();
+            });
+        }
+
+        // 제품별 공정 목록
+        function getProcessesForProduct(product) {
+            var processMap = {
+                'PBX': ['공정 1', '공정 2', '공정 3'],
+                'FPESA': ['공정 1', '공정 2'],
+                'FTS': ['공정 1', '공정 2'],
+                'TMCA-Cl': ['공정 1', '공정 2'],
+                'FP': ['공정 1', '공정 2'],
+                'IKF-916': ['공정 1', '공정 2'],
+                'CCA': ['공정 1', '공정 2'],
+                'PC': ['공정 1', '공정 2'],
+                'ICP 정제': ['공정 1', '공정 2'],
+                'MXL 정제': ['공정 1', '공정 2'],
+                'DCZ 정제': ['공정 1', '공정 2']
+            };
+            return processMap[product] || [];
+        }
+
+        // 공정별 설비 목록
+        function getEquipmentsForProcess(product, process) {
+            var equipmentMap = {
+                '공정 1': ['R-5501', 'R-5502', 'R-5503'],
+                '공정 2': ['R-5704', 'R-5705'],
+                '공정 3': ['R-5803', 'R-5804']
+            };
+            return equipmentMap[process] || [];
+        }
+
+        // 우측 설비 리스트 세로로 나열
+        function renderEquipmentList() {
+            var equipmentHtml = '';
+            var events = $('#calendar').fullCalendar('clientEvents');
+            var busyEquipments = [];
+
+            events.forEach(function(event) {
+                if (event.equipment) {
+                    busyEquipments.push(event.equipment);
+                }
+            });
+
+            allEquipments.forEach(function(equipment) {
+                if (busyEquipments.includes(equipment)) {
+                    equipmentHtml += '<li class="equipment in-use">' + equipment + ' (사용 중)</li>';
+                } else {
+                    equipmentHtml += '<li class="equipment">' + equipment + '</li>';
+                }
+            });
+            $('#equipment-list-content').html(equipmentHtml);
+        }
+
+        // 페이지 로드 시 설비 리스트 표시
+        renderEquipmentList();
+
+        // 이벤트 저장
+        function saveEvents() {
+            var events = $('#calendar').fullCalendar('clientEvents');
+            $.ajax({
+                url: '/save-events',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(events),
+                success: function(response) {
+                    alert('이벤트가 저장되었습니다.');
+                },
+                error: function(error) {
+                    alert('이벤트 저장 중 오류가 발생했습니다.');
+                }
+            });
+        }
+
+        // 이벤트 로드
+        function loadEvents() {
+            $.ajax({
+                url: '/load-events',
+                method: 'GET',
+                success: function(events) {
+                    $('#calendar').fullCalendar('removeEvents');
+                    $('#calendar').fullCalendar('renderEvents', events, true);
+                    renderEquipmentList();
+                },
+                error: function(error) {
+                    alert('이벤트 로드 중 오류가 발생했습니다.');
+                }
+            });
+        }
+
+        // 페이지 로드 시 이벤트 로드
+        loadEvents();
+
+        // 저장 버튼 클릭 이벤트
+        $('#save-events').click(function() {
+            saveEvents();
+        });
+    });
+  </script>
+</body>
+</html>
+
